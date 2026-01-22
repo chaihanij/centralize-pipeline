@@ -13,40 +13,40 @@ set -euo pipefail
 
 # Get emoji for risk level
 get_risk_emoji() {
-  case "$1" in
+    case "$1" in
     critical) echo "🔴" ;;
-    high)     echo "🟠" ;;
-    medium)   echo "🟡" ;;
-    low)      echo "🟢" ;;
-    *)        echo "⚪" ;;
-  esac
+    high) echo "🟠" ;;
+    medium) echo "🟡" ;;
+    low) echo "🟢" ;;
+    *) echo "⚪" ;;
+    esac
 }
 
 # Get emoji for change type
 get_change_emoji() {
-  case "$1" in
+    case "$1" in
     production) echo "🚀" ;;
-    emergency)  echo "🚨" ;;
-    major)      echo "📦" ;;
-    normal)     echo "📋" ;;
-    standard)   echo "⚙️" ;;
-    *)          echo "❓" ;;
-  esac
+    emergency) echo "🚨" ;;
+    major) echo "📦" ;;
+    normal) echo "📋" ;;
+    standard) echo "⚙️" ;;
+    *) echo "❓" ;;
+    esac
 }
 
 # Get icon for boolean values
 get_bool_icon() {
-  [[ "$1" == "true" ]] && echo "✅" || echo "⏭️"
+    [[ "$1" == "true" ]] && echo "✅" || echo "⏭️"
 }
 
 # Get approval status text
 get_approval_status() {
-  [[ "$1" == "true" ]] && echo "✅ Required" || echo "⏭️ Not Required"
+    [[ "$1" == "true" ]] && echo "✅ Required" || echo "⏭️ Not Required"
 }
 
 # Get production status icon
 get_prod_icon() {
-  [[ "$1" == "true" ]] && echo "✅" || echo "❌"
+    [[ "$1" == "true" ]] && echo "✅" || echo "❌"
 }
 
 # =========================================================
@@ -54,31 +54,32 @@ get_prod_icon() {
 # =========================================================
 
 generate_summary() {
-  local risk_level="${1}"
-  local change_type="${2}"
-  local target_env="${3}"
-  local vault_env="${4}"
-  local primary_tag="${5}"
-  local additional_tags="${6}"
-  local is_build="${7}"
-  local is_promote="${8}"
-  local should_deploy="${9}"
-  local should_run_sonar="${10}"
-  local should_run_sast="${11}"
-  local should_run_sca="${12}"
-  local should_run_trivy="${13}"
-  local should_run_dast="${14}"
-  local is_production="${15}"
-  local require_approval="${16}"
-  local generate_evidence="${17}"
+    local risk_level="${1}"
+    local change_type="${2}"
+    local target_env="${3}"
+    local vault_env="${4}"
+    local primary_tag="${5}"
+    local source_tag="${6}"
+    local additional_tags="${7}"
+    local is_build="${8}"
+    local is_promote="${9}"
+    local should_deploy="${10}"
+    local should_run_sonar="${11}"
+    local should_run_sast="${12}"
+    local should_run_sca="${13}"
+    local should_run_trivy="${14}"
+    local should_run_dast="${15}"
+    local is_production="${16}"
+    local require_approval="${17}"
+    local generate_evidence="${18}"
 
-  local risk_emoji
-  risk_emoji=$(get_risk_emoji "$risk_level")
-  local change_emoji
-  change_emoji=$(get_change_emoji "$change_type")
+    local risk_emoji
+    risk_emoji=$(get_risk_emoji "$risk_level")
+    local change_emoji
+    change_emoji=$(get_change_emoji "$change_type")
 
-  # Generate Summary Report
-  cat >> "${GITHUB_STEP_SUMMARY}" << EOF
+    # Generate Summary Report
+    cat >>"${GITHUB_STEP_SUMMARY}" <<EOF
 ## ${change_emoji} ITIL + DevSecOps Policy
 
 ### ${risk_emoji} Risk Level: \`${risk_level}\`
@@ -97,6 +98,7 @@ generate_summary() {
 | Tag Type | Value |
 |----------|-------|
 | **Primary** | \`${primary_tag}\` |
+| **Source** | \`${source_tag}\` |
 | **Additional** | \`${additional_tags}\` |
 
 ### 📋 ITIL Change Management
@@ -134,16 +136,16 @@ generate_summary() {
 
 EOF
 
-  # Add warning for high-risk changes
-  if [[ "$risk_level" == "critical" || "$risk_level" == "high" ]]; then
-    cat >> "${GITHUB_STEP_SUMMARY}" << EOF
+    # Add warning for high-risk changes
+    if [[ "$risk_level" == "critical" || "$risk_level" == "high" ]]; then
+        cat >>"${GITHUB_STEP_SUMMARY}" <<EOF
 > **⚠️ Warning**: This is a **${risk_level}** risk change. Additional security controls are enforced.
 
 EOF
-  fi
+    fi
 
-  # Add footer
-  cat >> "${GITHUB_STEP_SUMMARY}" << EOF
+    # Add footer
+    cat >>"${GITHUB_STEP_SUMMARY}" <<EOF
 ---
 
 **Commit**: \`${GITHUB_SHA:-unknown}\`
