@@ -43,6 +43,16 @@ jobs:
       packages: write
       pull-requests: write
     with:
+
+      RUNS_ON: ubuntu-latest
+      # arc-runner-set
+
+      VAULT_ADDR: "https://vault-aws-pe.tools.pttep.com"
+      VAULT_AUTH_ROLE: "podinfo-backend"
+      VAULT_AUDIENCE: "https://github.com/pttep-pcl"
+
+
       APPLICATION_TEAM: devops
       APPLICATION_NAME: centralize-pipeline
       BUILD_PLATFORM: go
+
