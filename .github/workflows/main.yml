@@ -45,11 +45,10 @@ jobs:
     with:
 
       RUNS_ON: ubuntu-latest
-      # arc-runner-set
 
-      VAULT_ADDR: "https://vault-aws-pe.tools.pttep.com"
-      VAULT_AUTH_ROLE: "podinfo-backend"
-      VAULT_AUDIENCE: "https://github.com/pttep-pcl"
+      VAULT_ADDR: ${{ vars.VAULT_ADDR }}
+      VAULT_AUTH_ROLE: ${{ vars.VAULT_AUTH_ROLE }}
+      VAULT_AUDIENCE: https://github.com/pttep-pcl
 
 
       APPLICATION_TEAM: devops
