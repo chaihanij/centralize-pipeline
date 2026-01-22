@@ -154,7 +154,7 @@ configure_image_tags() {
     v*)
         # Version tag is immutable release identifier; DO NOT auto-deploy here
         PRIMARY_TAG="$ref_name"
-        SOURCE_TAG="$ref_name"
+        SOURCE_TAG="sha-${SHORT_SHA}"
         ADDITIONAL_TAGS=""
         ;;
     hotfix/*)
