@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # =========================================================
-# ITIL + DevSecOps Policy Evaluator
+# ITIL + DevSecOps Policy Evaluator (Build Once, Deploy Many)
 # =========================================================
-# Evaluates workflow context and sets appropriate policies
-# based on branch, event type, and change management rules
+# Goals:
+# - Build Once: build immutable image tag (sha-<SHORT_SHA>) only on build branches (e.g., develop/hotfix)
+# - Deploy Many: promote (retag) the SAME built image across environments (dev -> qa -> uat -> prod)
+# - Governance: main/prod deployment requires approval; tag events do NOT auto-deploy
+#
+# Inputs (optional, for workflow_dispatch / promote flows):
+#   $1 = MANUAL_ENVIRONMENT   (dev|qa|uat|prod)
+#   $2 = MANUAL_SOURCE_TAG    (existing image tag to promote from, e.g., sha-abc1234, qa-abc1234, uat-abc1234, v26.1.3)
+#   $3 = MANUAL_VERSION_TAG   (optional, for prod: vX.Y.Z, e.g., v26.1.3)
+#
+# Outputs (GitHub Actions):
+#   target_env, vault_env, primary_tag, additional_tags, source_tag,
+#   is_build, is_promote, should_deploy,
+#   should_run_sonar, should_run_sast, should_run_sca, should_run_trivy, should_run_dast,
+#   is_production, require_approval, generate_evidence, change_type, risk_level
 # =========================================================
 
 set -euo pipefail
@@ -15,11 +28,35 @@ readonly GITHUB_SHA="${GITHUB_SHA:-}"
 readonly GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-}"
 readonly GITHUB_REF_NAME="${GITHUB_REF_NAME:-}"
 readonly SHORT_SHA="${GITHUB_SHA:0:7}"
+
 readonly MANUAL_ENVIRONMENT="${1:-}"
+readonly MANUAL_SOURCE_TAG="${2:-}"
+readonly MANUAL_VERSION_TAG="${3:-}"
 
 # =========================================================
 # Utility Functions
 # =========================================================
+
+die() {
+    echo "❌ $*" >&2
+    exit 1
+}
+
+is_valid_env() {
+    case "$1" in
+    dev | qa | uat | prod) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+normalize_vault_env() {
+    local env="${1:-}"
+    if [[ "$env" == "prod" ]]; then
+        echo "production"
+    else
+        echo "$env"
+    fi
+}
 
 # Initialize all variables with safe defaults
 initialize_defaults() {
@@ -43,133 +80,98 @@ initialize_defaults() {
     CHANGE_TYPE="standard"
     RISK_LEVEL="low"
 
+    # Default immutable build tag
     SOURCE_TAG="sha-${SHORT_SHA}"
 
     PRIMARY_TAG=""
     ADDITIONAL_TAGS=""
 }
 
-# Normalize Vault environment
-normalize_vault_env() {
-    local env=$1
-    if [[ "$env" == "prod" ]]; then
-        echo "production"
-    else
-        echo "$env"
-    fi
-}
-
 # Apply security controls based on risk level
 apply_security_controls() {
-    local risk=$1
+    local risk="${1:-low}"
     if [[ "$risk" == "high" || "$risk" == "critical" ]]; then
         SHOULD_RUN_DAST="true"
     fi
 }
 
-# Generate semantic version using Commitizen
-# Year-based semantic versioning: YY.MINOR.PATCH (e.g., 26.1.3)
-# Sets PRIMARY_TAG, SOURCE_TAG, and ADDITIONAL_TAGS based on the branch pattern
-generate_semantic_version() {
-    local branch_pattern=$1
+# Configure image tags by environment (promotion)
+set_env_tags_for_manual() {
+    local env="$1"
 
-    echo "::group::🔢 Generating Semantic Version" >&2
-
-    # Get current version from git tags or default to YY.0.0 (current year)
-    CURRENT_YEAR=$(date +%y) # Two-digit year
-    CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v${CURRENT_YEAR}.0.0")
-    CURRENT_VERSION="${CURRENT_VERSION#v}" # Strip 'v' prefix
-
-    echo "Current version from tags: ${CURRENT_VERSION}" >&2
-
-    local APP_VERSION
-
-    # Check if commitizen is available
-    if ! command -v cz &>/dev/null; then
-        echo "⚠️ Commitizen not found, falling back to SHA-based version" >&2
-        APP_VERSION="${CURRENT_VERSION}-${SHORT_SHA}"
-    else
-        # Use commitizen to determine next version based on conventional commits
-        # BREAKING CHANGE → YY+1.0.0 (year bump)
-        # feat → YY.MINOR+1.0 (minor bump)
-        # fix/perf → YY.MINOR.PATCH+1 (patch bump)
-        set +e # Don't exit on error - allow commitizen to fail gracefully
-        BUMP_OUTPUT=$(cz bump --dry-run --yes 2>&1)
-        BUMP_EXIT_CODE=$? # Capture exit code immediately before any other command overwrites it
-        set -e            # Re-enable exit on error for remaining script
-
-        echo "Commitizen output:" >&2
-        echo "$BUMP_OUTPUT" >&2
-
-        # Extract version from bump output
-        NEXT_VERSION=$(echo "$BUMP_OUTPUT" | grep -oP "(?<=bump: version )\S+" || echo "")
-
-        # If no version bump detected or commitizen failed, use current version with SHA
-        if [ -z "$NEXT_VERSION" ] || [ "$NEXT_VERSION" == "$CURRENT_VERSION" ] || [ $BUMP_EXIT_CODE -ne 0 ]; then
-            APP_VERSION="${CURRENT_VERSION}-${SHORT_SHA}"
-            echo "No version bump needed or error occurred, using: ${APP_VERSION}" >&2
-        else
-            APP_VERSION="${NEXT_VERSION}"
-            echo "New version determined: ${APP_VERSION}" >&2
-        fi
+    # Source tag must point to an EXISTING tag in registry (build once)
+    if [[ -n "$MANUAL_SOURCE_TAG" ]]; then
+        SOURCE_TAG="$MANUAL_SOURCE_TAG"
     fi
 
-    # Set PRIMARY_TAG
-    PRIMARY_TAG="$APP_VERSION"
-
-    # Set SOURCE_TAG (for promotion scenarios)
-    SOURCE_TAG="$APP_VERSION"
-
-    # Set ADDITIONAL_TAGS based on branch pattern
-    case "$branch_pattern" in
-        "develop")
-            ADDITIONAL_TAGS="dev-${SHORT_SHA},dev-latest"
-            ;;
-        "release")
-            ADDITIONAL_TAGS="qa-${SHORT_SHA},qa-latest"
-            ;;
-        "hotfix")
-            ADDITIONAL_TAGS="hotfix-${SHORT_SHA},hotfix-latest"
-            ;;
-        *)
-            ADDITIONAL_TAGS=""
-            ;;
-    esac
-
-    echo "Primary Tag: $PRIMARY_TAG" >&2
-    echo "Source Tag: $SOURCE_TAG" >&2
-    echo "Additional Tags: $ADDITIONAL_TAGS" >&2
-    echo "::endgroup::" >&2
-}
-
-# Configure image tags based on branch/tag pattern
-# Uses semantic versioning (YY.MINOR.PATCH) for develop/release/hotfix branches
-configure_image_tags() {
-    local ref_name=$1
-    case "$ref_name" in
-    "develop")
-        generate_semantic_version "develop"
+    case "$env" in
+    dev)
+        PRIMARY_TAG="dev-${SHORT_SHA}"
+        ADDITIONAL_TAGS="dev-latest"
         ;;
-    release/*)
-        generate_semantic_version "release"
+    qa)
+        PRIMARY_TAG="qa-${SHORT_SHA}"
+        ADDITIONAL_TAGS="qa-latest"
         ;;
-    v*)
-        PRIMARY_TAG="$ref_name" # Use git tag directly for releases
-        SOURCE_TAG="$ref_name"
+    uat)
+        PRIMARY_TAG="uat-${SHORT_SHA}"
         ADDITIONAL_TAGS="uat-latest"
         ;;
-    hotfix/*)
-        generate_semantic_version "hotfix"
+    prod)
+        # Prefer version tag for prod (immutable release identifier)
+        if [[ -n "$MANUAL_VERSION_TAG" ]]; then
+            PRIMARY_TAG="$MANUAL_VERSION_TAG"
+        else
+            PRIMARY_TAG="prod-${SHORT_SHA}"
+        fi
+        # Optional convenience tags for prod
+        ADDITIONAL_TAGS="prod-latest"
         ;;
     *)
-        PRIMARY_TAG="sha-${SHORT_SHA}" # Fallback for unknown branches
+        die "Invalid environment '$env' for manual tagging"
+        ;;
+    esac
+}
+
+# Configure image tags based on branch/tag pattern (automatic flows)
+configure_image_tags() {
+    local ref_name="$1"
+
+    case "$ref_name" in
+    "develop")
+        # Build once: immutable sha tag; also publish dev tags for convenience
+        PRIMARY_TAG="sha-${SHORT_SHA}"
+        SOURCE_TAG="sha-${SHORT_SHA}"
+        ADDITIONAL_TAGS="dev-${SHORT_SHA},dev-latest"
+        ;;
+    release/*)
+        # Promote to QA (should retag the previously built artifact)
+        # NOTE: In push-based release flow, source_tag often equals same commit sha.
+        # If you promote from another tag, pass MANUAL_SOURCE_TAG via workflow_dispatch instead.
+        PRIMARY_TAG="qa-${SHORT_SHA}"
+        ADDITIONAL_TAGS="qa-latest"
+        ;;
+    v*)
+        # Version tag is immutable release identifier; DO NOT auto-deploy here
+        PRIMARY_TAG="$ref_name"
+        SOURCE_TAG="$ref_name"
+        ADDITIONAL_TAGS=""
+        ;;
+    hotfix/*)
+        # Hotfix: build once (sha) but DO NOT auto-deploy by default (governance)
+        PRIMARY_TAG="sha-${SHORT_SHA}"
+        SOURCE_TAG="sha-${SHORT_SHA}"
+        ADDITIONAL_TAGS="hotfix-${SHORT_SHA}"
+        ;;
+    *)
+        PRIMARY_TAG="sha-${SHORT_SHA}"
         SOURCE_TAG="sha-${SHORT_SHA}"
         ADDITIONAL_TAGS=""
         ;;
     esac
 }
 
-# Set environment configuration
+# Set environment configuration and ITIL change management policy
 set_environment_config() {
     local event_name="$1"
     local ref_name="$2"
@@ -181,55 +183,103 @@ set_environment_config() {
         CHANGE_TYPE="standard"
         RISK_LEVEL="low"
         GENERATE_EVIDENCE="true"
+        # PR verification only
+        IS_BUILD="false"
+        IS_PROMOTE="false"
+        SHOULD_DEPLOY="false"
         ;;
+
     "workflow_dispatch")
-        ENV_NAME="${MANUAL_ENVIRONMENT}"
-        VAULT_ENV="${MANUAL_ENVIRONMENT}"
+        # Manual promote/deploy across environments (deploy many)
+        if ! is_valid_env "$MANUAL_ENVIRONMENT"; then
+            die "workflow_dispatch requires MANUAL_ENVIRONMENT as dev|qa|uat|prod (arg1). Got: '${MANUAL_ENVIRONMENT:-empty}'"
+        fi
+
+        ENV_NAME="$MANUAL_ENVIRONMENT"
+        VAULT_ENV="$MANUAL_ENVIRONMENT"
+
+        IS_BUILD="false"
         IS_PROMOTE="true"
         SHOULD_DEPLOY="true"
-        IS_PRODUCTION="true"
-        REQUIRE_APPROVAL="true"
         GENERATE_EVIDENCE="true"
-        CHANGE_TYPE="production"
-        RISK_LEVEL="critical"
+
+        case "$ENV_NAME" in
+        dev | qa)
+            CHANGE_TYPE="normal"
+            RISK_LEVEL="medium"
+            REQUIRE_APPROVAL="false"
+            IS_PRODUCTION="false"
+            ;;
+        uat)
+            CHANGE_TYPE="major"
+            RISK_LEVEL="high"
+            REQUIRE_APPROVAL="true"
+            IS_PRODUCTION="false"
+            ;;
+        prod)
+            CHANGE_TYPE="production"
+            RISK_LEVEL="critical"
+            REQUIRE_APPROVAL="true"
+            IS_PRODUCTION="true"
+            ;;
+        esac
+
+        # Set tags for manual promotion
+        set_env_tags_for_manual "$ENV_NAME"
         ;;
+
     *)
+        # push / tag events
         case "$ref_name" in
         "develop")
             ENV_NAME="dev"
             VAULT_ENV="dev"
-            IS_BUILD="true"
-            SHOULD_DEPLOY="true"
+            IS_BUILD="true" # build once here
+            IS_PROMOTE="false"
+            SHOULD_DEPLOY="true" # deploy dev is OK
             CHANGE_TYPE="standard"
             RISK_LEVEL="medium"
             GENERATE_EVIDENCE="true"
             ;;
+
         release/*)
             ENV_NAME="qa"
             VAULT_ENV="qa"
-            IS_PROMOTE="true"
+            IS_BUILD="false"
+            IS_PROMOTE="true" # promote to QA from built artifact
             SHOULD_DEPLOY="true"
             CHANGE_TYPE="normal"
             RISK_LEVEL="medium"
             GENERATE_EVIDENCE="true"
             ;;
+
         v*)
-            ENV_NAME="uat"
-            VAULT_ENV="uat"
-            IS_PROMOTE="true"
-            SHOULD_DEPLOY="true"
+            # Tag event should NOT auto-deploy; use workflow_dispatch for uat/prod
+            ENV_NAME="release"
+            VAULT_ENV="qa"
+            IS_BUILD="false"
+            IS_PROMOTE="false"
+            SHOULD_DEPLOY="false"
             CHANGE_TYPE="major"
             RISK_LEVEL="high"
             GENERATE_EVIDENCE="true"
+            REQUIRE_APPROVAL="true"
             ;;
+
         hotfix/*)
             ENV_NAME="hotfix"
             VAULT_ENV="dev"
-            IS_BUILD="true"
-            SHOULD_DEPLOY="false"
+            IS_BUILD="true" # build once
+            IS_PROMOTE="false"
+            SHOULD_DEPLOY="false" # deploy via manual approval
             CHANGE_TYPE="emergency"
             RISK_LEVEL="high"
             GENERATE_EVIDENCE="true"
+            REQUIRE_APPROVAL="true"
+            ;;
+        *)
+            ENV_NAME="none"
+            VAULT_ENV="none"
             ;;
         esac
         ;;
@@ -260,28 +310,27 @@ risk_level=$RISK_LEVEL
 EOF
 }
 
-# Log change type analysis
 log_change_analysis() {
     case "$GITHUB_EVENT_NAME" in
     "pull_request")
-        echo "✅ Pull Request - Verification Mode"
+        echo "✅ Pull Request - Verification Mode (no deploy)"
         ;;
     "workflow_dispatch")
-        echo "✅ Manual Dispatch - Production Change"
+        echo "✅ Manual Dispatch - Promote/Deploy to '${MANUAL_ENVIRONMENT:-unknown}'"
         ;;
     *)
         case "$GITHUB_REF_NAME" in
         "develop")
-            echo "✅ Develop Branch - Standard Change"
+            echo "✅ Develop - Build Once + Deploy Dev"
             ;;
         release/*)
-            echo "✅ Release Branch - Normal Change"
+            echo "✅ Release - Promote to QA + Deploy QA"
             ;;
         v*)
-            echo "✅ Version Tag - Major Change"
+            echo "✅ Tag - Freeze Artifact (no auto deploy)"
             ;;
         hotfix/*)
-            echo "🚨 Hotfix Branch - Emergency Change"
+            echo "🚨 Hotfix - Build Once (manual deploy)"
             ;;
         *)
             echo "⚠️ Unknown trigger context"
@@ -301,26 +350,37 @@ main() {
     echo "Branch/Tag: $GITHUB_REF_NAME"
     echo "Actor:      ${GITHUB_ACTOR:-unknown}"
     echo "Short SHA:  $SHORT_SHA"
+    if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+        echo "Manual Env: ${MANUAL_ENVIRONMENT:-}"
+        echo "Source Tag: ${MANUAL_SOURCE_TAG:-}"
+        echo "Version:    ${MANUAL_VERSION_TAG:-}"
+    fi
     echo "::endgroup::"
 
-    # Initialize defaults
     initialize_defaults
 
-    # Configure environment and change management
     echo "::group::🔍 Analyzing Change Type"
     set_environment_config "$GITHUB_EVENT_NAME" "$GITHUB_REF_NAME"
     log_change_analysis
     echo "::endgroup::"
 
-    # Configure image tags
-    echo "::group::🏷️ Configuring Image Tags"
-    configure_image_tags "$GITHUB_REF_NAME"
-    echo "Primary Tag: $PRIMARY_TAG"
-    echo "Source Tag: $SOURCE_TAG"
-    echo "Additional Tags: $ADDITIONAL_TAGS"
-    echo "::endgroup::"
+    # Configure image tags for non-manual events.
+    # For workflow_dispatch we already set tags inside set_environment_config()
+    if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]]; then
+        echo "::group::🏷️ Configuring Image Tags"
+        configure_image_tags "$GITHUB_REF_NAME"
+        echo "Primary Tag: $PRIMARY_TAG"
+        echo "Source Tag:  $SOURCE_TAG"
+        echo "Additional:  $ADDITIONAL_TAGS"
+        echo "::endgroup::"
+    else
+        echo "::group::🏷️ Configuring Image Tags (Manual)"
+        echo "Primary Tag: $PRIMARY_TAG"
+        echo "Source Tag:  $SOURCE_TAG"
+        echo "Additional:  $ADDITIONAL_TAGS"
+        echo "::endgroup::"
+    fi
 
-    # Apply security controls
     echo "::group::🔒 Applying Security Controls"
     apply_security_controls "$RISK_LEVEL"
     echo "Risk Level: $RISK_LEVEL"
@@ -331,7 +391,6 @@ main() {
     echo "  - DAST:      $SHOULD_RUN_DAST"
     echo "::endgroup::"
 
-    # Display policy decision summary
     echo "::group::📊 Policy Decision Summary"
     echo "Environment:"
     echo "  Target:     $ENV_NAME"
@@ -352,9 +411,7 @@ main() {
     echo "  Evidence:   $GENERATE_EVIDENCE"
     echo "::endgroup::"
 
-    # Set GitHub outputs
     set_github_outputs
 }
 
-# Execute main function
 main
