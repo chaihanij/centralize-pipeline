@@ -123,6 +123,13 @@ jobs:
       - name: Make scripts executable
         run: chmod +x .github/scripts/*.sh
 
+      - name: Debug Info
+        run: |
+          echo "GITHUB_EVENT_NAME: ${{ github.event_name }}" 
+          echo "GITHUB_REF_NAME: ${{ github.ref_name }}"
+          echo "GITHUB_SHA: ${{ github.sha }}"
+          echo "GITHUB_ACTOR: ${{ github.actor }}"
+
       - name: Evaluate ITIL and DevSecOps Policy
         id: policy
         env:
@@ -145,6 +152,7 @@ jobs:
             "${{ steps.policy.outputs.target_env }}" \
             "${{ steps.policy.outputs.vault_env }}" \
             "${{ steps.policy.outputs.primary_tag }}" \
+            "${{ steps.policy.outputs.source_tag }}" \
             "${{ steps.policy.outputs.additional_tags }}" \
             "${{ steps.policy.outputs.is_build }}" \
             "${{ steps.policy.outputs.is_promote }}" \

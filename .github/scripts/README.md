@@ -11,7 +11,7 @@ This directory contains modular bash scripts used by the Context workflow.
 - Analyzes branch/tag patterns and event types
 - Determines target environment and configuration
 - Generates semantic versions using Commitizen
-- Configures image tags based on deployment stage
+- Configures image tags (primary, source, and additional) based on deployment stage
 - Applies security controls based on risk level
 - Sets all workflow outputs for downstream jobs
 
@@ -62,24 +62,25 @@ This directory contains modular bash scripts used by the Context workflow.
 - `GITHUB_SHA`: Commit SHA
 - `GITHUB_ACTOR`: User triggering the workflow
 
-**Arguments** (17 positional):
+**Arguments** (18 positional):
 1. `risk_level`: Risk level (low, medium, high, critical)
 2. `change_type`: Change type (standard, normal, major, emergency, production)
 3. `target_env`: Target environment
 4. `vault_env`: Vault environment
 5. `primary_tag`: Primary image tag
-6. `additional_tags`: Additional tags
-7. `is_build`: Build flag
-8. `is_promote`: Promote flag
-9. `should_deploy`: Deploy flag
-10. `should_run_sonar`: SonarQube flag
-11. `should_run_sast`: SAST flag
-12. `should_run_sca`: SCA flag
-13. `should_run_trivy`: Trivy flag
-14. `should_run_dast`: DAST flag
-15. `is_production`: Production flag
-16. `require_approval`: Approval flag
-17. `generate_evidence`: Evidence flag
+6. `source_tag`: Source image tag
+7. `additional_tags`: Additional tags
+8. `is_build`: Build flag
+9. `is_promote`: Promote flag
+10. `should_deploy`: Deploy flag
+11. `should_run_sonar`: SonarQube flag
+12. `should_run_sast`: SAST flag
+13. `should_run_sca`: SCA flag
+14. `should_run_trivy`: Trivy flag
+15. `should_run_dast`: DAST flag
+16. `is_production`: Production flag
+17. `require_approval`: Approval flag
+18. `generate_evidence`: Evidence flag
 
 **Output**: Formatted markdown to `$GITHUB_STEP_SUMMARY`
 
@@ -96,13 +97,13 @@ Format: `YY.MINOR.PATCH` (e.g., `26.1.3`)
 
 ### Tag Patterns by Branch
 
-| Branch/Tag Pattern | Primary Tag | Additional Tags | Use Case |
-|-------------------|-------------|-----------------|----------|
-| `develop` | Semantic version | `dev-{sha}`, `dev-latest` | Development builds |
-| `release/*` | Semantic version | `qa-{sha}`, `qa-latest` | QA testing |
-| `v*` | Git tag | `uat-latest` | UAT/Staging |
-| `hotfix/*` | Semantic version | `hotfix-{sha}`, `hotfix-latest` | Emergency fixes |
-| Other | `sha-{sha}` | - | Unknown/adhoc |
+| Branch/Tag Pattern | Primary Tag | Source Tag | Additional Tags | Use Case |
+|-------------------|-------------|------------|-----------------|----------|
+| `develop` | Semantic version | Semantic version | `dev-{sha}`, `dev-latest` | Development builds |
+| `release/*` | Semantic version | Semantic version | `qa-{sha}`, `qa-latest` | QA testing |
+| `v*` | Git tag | Git tag | `uat-latest` | UAT/Staging |
+| `hotfix/*` | Semantic version | Semantic version | `hotfix-{sha}`, `hotfix-latest` | Emergency fixes |
+| Other | `sha-{sha}` | `sha-{sha}` | - | Unknown/adhoc |
 
 ---
 

@@ -139,7 +139,7 @@ on:
 jobs:
   context:
     name: Context
-    uses: .github/workflows/context.yml
+    uses: ./.github/workflows/context.yml
     with:
       RUNS_ON: ${{ inputs.RUNS_ON }}
       ENVIRONMENT: ${{ inputs.ENVIRONMENT }}
