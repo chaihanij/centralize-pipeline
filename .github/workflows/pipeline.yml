@@ -1,0 +1,145 @@
+name: Centralize Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # =====================================================
+      # Runner Configuration
+      # =====================================================
+      RUNS_ON:
+        type: string
+        required: true
+        default: ubuntu-latest
+        description: "กำหนด Runner ที่ใช้รัน pipeline เช่น ubuntu-latest, self-hosted, self-hosted-linux"
+
+      # =====================================================
+      # Vault (Zero Trust)
+      # =====================================================
+      VAULT_ADDR:
+        type: string
+        required: true
+
+      VAULT_AUTH_ROLE:
+        type: string
+        required: true
+
+      VAULT_AUDIENCE:
+        type: string
+        required: false
+        default: "https://github.com/pttep-pcl"
+
+      # =====================================================
+      # Application Identity
+      # =====================================================
+      APPLICATION_TEAM:
+        type: string
+        required: true
+
+      APPLICATION_NAME:
+        type: string
+        required: true
+
+      BUILD_PLATFORM:
+        type: string
+        required: false
+        default: go
+
+      # =====================================================
+      # Unit Test & Coverage
+      # =====================================================
+      DOCKERFILE_UNITTEST:
+        type: string
+        required: false
+        default: ./build/package/Dockerfile.Unittest
+        description: "Path to the Dockerfile for running unit tests (expects coverage output at unit-test/reports/coverage.xml)"
+
+      COVERAGE_THRESHOLD:
+        type: number
+        required: false
+        default: 0
+        description: "Minimum code coverage percentage required (0-100). Set to 0 to disable threshold check. Example: 80 means 80% coverage required"
+
+      FAIL_ON_LOW_COVERAGE:
+        type: boolean
+        required: false
+        default: false
+        description: "Fail the workflow if coverage is below threshold. Set to true to enforce coverage requirements, false to show warning only"
+
+      # =====================================================
+      # Security Scanning (Code Quality)
+      # =====================================================
+      SONARQUBE_ENABLE:
+        required: false
+        type: boolean
+        default: false
+      SONARQUBE_QUALITY_GATE_WAIT:
+        required: false
+        type: boolean
+        default: true
+        description: "Wait for Quality Gate result"
+
+      # =====================================================
+      # Docker Build Configuration
+      # =====================================================
+      DOCKER_REGISTRY:
+        type: string
+        required: false
+        default: "ghcr.io"
+        description: "Docker registry URL"
+      DOCKERFILE:
+        type: string
+        required: false
+        default: ./build/package/Dockerfile
+        description: "Path to the Dockerfile for build image"
+
+      # =====================================================
+      # Container Image Scanning
+      # =====================================================
+      ENABLE_IMAGE_SCAN:
+        type: boolean
+        required: false
+        default: true
+        description: "Enable container image vulnerability scanning"
+
+      IMAGE_SCAN_SEVERITY:
+        type: string
+        required: false
+        default: "CRITICAL,HIGH,MEDIUM"
+        description: "Image vulnerability severity levels to scan for"
+
+      FAIL_ON_IMAGE_VULNERABILITY:
+        type: boolean
+        required: false
+        default: false
+        description: "Fail the build if image vulnerabilities are found"
+
+      # =====================================================
+      # Manual Promotion (Environment Control)
+      # =====================================================
+      ENVIRONMENT:
+        type: string
+        required: false
+        description: "Manual environment override: dev | qa | uat | prod"
+
+
+      # =====================================================
+      # DAST Dynamic Application Security Test
+      # =====================================================
+      DAST_ENABLE:
+        type: boolean
+        required: false
+        default: false
+        description: "Enable DAST scanning"
+      DAST_TARGET_URL:
+        type: string
+        required: false
+        description: "Target URL for DAST scanning Example: https://myapp-dev.example.com"
+
+
+jobs:
+  context:
+    name: Context
+    uses: .github/workflows/context.yml
+    with:
+      RUNS_ON: ${{ inputs.RUNS_ON }}
+      ENVIRONMENT: ${{ inputs.ENVIRONMENT }}

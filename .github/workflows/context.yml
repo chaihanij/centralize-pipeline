@@ -1,0 +1,159 @@
+name: Enterprise Policy Engine
+
+on:
+  workflow_call:
+    inputs:
+      # =====================================================
+      # Runner
+      # =====================================================
+      RUNS_ON:
+        type: string
+        required: true
+        default: ubuntu-latest
+
+      # =====================================================
+      # Manual Environment Override
+      # =====================================================
+      ENVIRONMENT:
+        type: string
+        required: false
+        description: "Manual target env example dev | qa | uat | prod"
+
+    outputs:
+      # Environment
+      target_env:
+        value: ${{ jobs.context.outputs.target_env }}
+      vault_env:
+        value: ${{ jobs.context.outputs.vault_env }}
+
+      # Image Tags
+      primary_tag:
+        value: ${{ jobs.context.outputs.primary_tag }}
+      additional_tags:
+        value: ${{ jobs.context.outputs.additional_tags }}
+      source_tag:
+        value: ${{ jobs.context.outputs.source_tag }}
+
+      # Build & Promotion
+      is_build:
+        value: ${{ jobs.context.outputs.is_build }}
+      is_promote:
+        value: ${{ jobs.context.outputs.is_promote }}
+      should_deploy:
+        value: ${{ jobs.context.outputs.should_deploy }}
+
+      # Security Scans
+      should_run_sonar:
+        value: ${{ jobs.context.outputs.should_run_sonar }}
+      should_run_sast:
+        value: ${{ jobs.context.outputs.should_run_sast }}
+      should_run_sca:
+        value: ${{ jobs.context.outputs.should_run_sca }}
+      should_run_trivy:
+        value: ${{ jobs.context.outputs.should_run_trivy }}
+      should_run_dast:
+        value: ${{ jobs.context.outputs.should_run_dast }}
+
+      # Governance
+      is_production:
+        value: ${{ jobs.context.outputs.is_production }}
+      require_approval:
+        value: ${{ jobs.context.outputs.require_approval }}
+      generate_evidence:
+        value: ${{ jobs.context.outputs.generate_evidence }}
+
+      # ITIL
+      change_type:
+        value: ${{ jobs.context.outputs.change_type }}
+      risk_level:
+        value: ${{ jobs.context.outputs.risk_level }}
+
+jobs:
+  context:
+    name: Set Context
+    runs-on: ${{ inputs.RUNS_ON }}
+
+    outputs:
+      # Environment
+      target_env: ${{ steps.policy.outputs.target_env }}
+      vault_env: ${{ steps.policy.outputs.vault_env }}
+
+      # Image Tags
+      primary_tag: ${{ steps.policy.outputs.primary_tag }}
+      additional_tags: ${{ steps.policy.outputs.additional_tags }}
+      source_tag: ${{ steps.policy.outputs.source_tag }}
+
+      # Build & Promotion
+      is_build: ${{ steps.policy.outputs.is_build }}
+      is_promote: ${{ steps.policy.outputs.is_promote }}
+      should_deploy: ${{ steps.policy.outputs.should_deploy }}
+
+      # Security Scans
+      should_run_sonar: ${{ steps.policy.outputs.should_run_sonar }}
+      should_run_sast: ${{ steps.policy.outputs.should_run_sast }}
+      should_run_sca: ${{ steps.policy.outputs.should_run_sca }}
+      should_run_trivy: ${{ steps.policy.outputs.should_run_trivy }}
+      should_run_dast: ${{ steps.policy.outputs.should_run_dast }}
+
+      # Governance
+      is_production: ${{ steps.policy.outputs.is_production }}
+      require_approval: ${{ steps.policy.outputs.require_approval }}
+      generate_evidence: ${{ steps.policy.outputs.generate_evidence }}
+
+      # ITIL
+      change_type: ${{ steps.policy.outputs.change_type }}
+      risk_level: ${{ steps.policy.outputs.risk_level }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for semantic versioning
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Commitizen
+        run: |
+          pip install --user commitizen==4.1.0
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Make scripts executable
+        run: chmod +x .github/scripts/*.sh
+
+      - name: Evaluate ITIL and DevSecOps Policy
+        id: policy
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: .github/scripts/policy-evaluator.sh "${{ inputs.ENVIRONMENT }}"
+
+      - name: Generate Summary Report
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          .github/scripts/generate-summary.sh \
+            "${{ steps.policy.outputs.risk_level }}" \
+            "${{ steps.policy.outputs.change_type }}" \
+            "${{ steps.policy.outputs.target_env }}" \
+            "${{ steps.policy.outputs.vault_env }}" \
+            "${{ steps.policy.outputs.primary_tag }}" \
+            "${{ steps.policy.outputs.additional_tags }}" \
+            "${{ steps.policy.outputs.is_build }}" \
+            "${{ steps.policy.outputs.is_promote }}" \
+            "${{ steps.policy.outputs.should_deploy }}" \
+            "${{ steps.policy.outputs.should_run_sonar }}" \
+            "${{ steps.policy.outputs.should_run_sast }}" \
+            "${{ steps.policy.outputs.should_run_sca }}" \
+            "${{ steps.policy.outputs.should_run_trivy }}" \
+            "${{ steps.policy.outputs.should_run_dast }}" \
+            "${{ steps.policy.outputs.is_production }}" \
+            "${{ steps.policy.outputs.require_approval }}" \
+            "${{ steps.policy.outputs.generate_evidence }}"

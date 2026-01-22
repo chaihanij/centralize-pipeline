@@ -1,0 +1,48 @@
+name: CI / CD
+
+# =====================================================
+# Trigger Events
+# =====================================================
+on:
+  push:
+    branches:
+      - develop
+      - release/**
+      - hotfix/**
+    tags:
+      - v*
+
+  pull_request:
+    branches:
+      - develop
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment for manual deployment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - uat
+          - prod
+        default: dev
+
+jobs:
+  # =====================================================
+  # Main Pipeline - Call Centralize Pipeline
+  # =====================================================
+  pipeline:
+    name: DevSecOps Pipeline
+    uses: chaihanij/centralize-pipeline/.github/workflows/pipeline.yml@develop
+    permissions:
+      contents: write
+      id-token: write
+      security-events: write
+      packages: write
+      pull-requests: write
+    with:
+      APPLICATION_TEAM: devops
+      APPLICATION_NAME: centralize-pipeline
+      BUILD_PLATFORM: go

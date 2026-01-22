@@ -1,0 +1,73 @@
+[tool.commitizen]
+# Commitizen configuration for DevSecOps Pipeline
+# Year-based semantic versioning: YY.MINOR.PATCH (e.g., 25.1.3 for 2025)
+name = "cz_conventional_commits"
+version = "26.0.0"
+version_scheme = "semver"
+tag_format = "v$version"
+
+# Version file management
+version_files = [
+    "Makefile:VERSION := $version",
+]
+
+# Changelog settings
+update_changelog_on_bump = true
+changelog_file = "CHANGELOG.md"
+changelog_incremental = true
+# changelog_start_rev = "v25.0.0"
+
+# Commit message validation
+message_length_limit = 100
+allowed_prefixes = [
+    "Merge",
+    "Revert",
+    "Pull request",
+    "fixup!",
+    "squash!",
+]
+
+# Git settings
+annotated_tag = true
+gpg_sign = false
+bump_message = "bump: version $current_version → $new_version"
+
+# Breaking changes format
+breaking_change_exclamation_in_title = true
+
+# Change type ordering for changelog
+# Uncommment and customize if using cz_customize
+# change_type_order = [
+#     "BREAKING CHANGE",
+#     "Feat",
+#     "Fix",
+#     "Perf",
+#     "Refactor",
+#     "Build",
+#     "CI",
+#     "Docs",
+# ]
+
+# Pre/post bump hooks
+pre_bump_hooks = []
+post_bump_hooks = [
+    "git push",
+    "git push --tags",
+]
+
+# UI customization with PTTEP colors
+style = [
+    ["qmark", "fg:#ff9d00 bold"],           # Question mark (orange)
+    ["question", "bold"],                    # Question text
+    ["answer", "fg:#ff9d00 bold"],          # User's answer (orange)
+    ["pointer", "fg:#ff9d00 bold"],         # Selection pointer (orange)
+    ["highlighted", "fg:#ff9d00 bold"],     # Highlighted choice (orange)
+    ["selected", "fg:#00a651"],             # Selected item (PTTEP green)
+    ["separator", "fg:#858585"],            # Separator lines
+    ["instruction", ""],                     # Instructions
+    ["text", ""],                            # Default text
+    ["disabled", "fg:#858585 italic"],      # Disabled items
+]
+
+# Enable keyboard shortcuts for faster selection
+use_shortcuts = true
