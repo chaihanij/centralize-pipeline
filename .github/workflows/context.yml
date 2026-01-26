@@ -1,23 +1,16 @@
-name: Enterprise Policy Engine
+name: Set Context
 
 on:
   workflow_call:
     inputs:
-      # =====================================================
-      # Runner
-      # =====================================================
       RUNS_ON:
         type: string
         required: true
-        default: ubuntu-latest
-
-      # =====================================================
-      # Manual Environment Override
-      # =====================================================
+        default: self-hosted
       ENVIRONMENT:
         type: string
         required: false
-        description: "Manual target env example dev | qa | uat | prod"
+        description: "Manual target env เช่น dev | qa | uat | prod"
 
     outputs:
       # Environment
@@ -74,33 +67,23 @@ jobs:
     runs-on: ${{ inputs.RUNS_ON }}
 
     outputs:
-      # Environment
+      # Mapping outputs from step "policy"
       target_env: ${{ steps.policy.outputs.target_env }}
       vault_env: ${{ steps.policy.outputs.vault_env }}
-
-      # Image Tags
       primary_tag: ${{ steps.policy.outputs.primary_tag }}
       additional_tags: ${{ steps.policy.outputs.additional_tags }}
       source_tag: ${{ steps.policy.outputs.source_tag }}
-
-      # Build & Promotion
       is_build: ${{ steps.policy.outputs.is_build }}
       is_promote: ${{ steps.policy.outputs.is_promote }}
       should_deploy: ${{ steps.policy.outputs.should_deploy }}
-
-      # Security Scans
       should_run_sonar: ${{ steps.policy.outputs.should_run_sonar }}
       should_run_sast: ${{ steps.policy.outputs.should_run_sast }}
       should_run_sca: ${{ steps.policy.outputs.should_run_sca }}
       should_run_trivy: ${{ steps.policy.outputs.should_run_trivy }}
       should_run_dast: ${{ steps.policy.outputs.should_run_dast }}
-
-      # Governance
       is_production: ${{ steps.policy.outputs.is_production }}
       require_approval: ${{ steps.policy.outputs.require_approval }}
       generate_evidence: ${{ steps.policy.outputs.generate_evidence }}
-
-      # ITIL
       change_type: ${{ steps.policy.outputs.change_type }}
       risk_level: ${{ steps.policy.outputs.risk_level }}
 
@@ -108,60 +91,260 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for semantic versioning
+          fetch-depth: 0 # Essential for semantic versioning
 
-      - name: Set up Python
+      - name: Set up Python & Commitizen
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Commitizen
+      - name: Install Dependencies
         run: |
           pip install --user commitizen==4.1.0
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Make scripts executable
-        run: chmod +x .github/scripts/*.sh
-
-      - name: Debug Info
-        run: |
-          echo "GITHUB_EVENT_NAME: ${{ github.event_name }}" 
-          echo "GITHUB_REF_NAME: ${{ github.ref_name }}"
-          echo "GITHUB_SHA: ${{ github.sha }}"
-          echo "GITHUB_ACTOR: ${{ github.actor }}"
-
       - name: Evaluate ITIL and DevSecOps Policy
         id: policy
-        env:
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_ACTOR: ${{ github.actor }}
-        run: .github/scripts/policy-evaluator.sh "${{ inputs.ENVIRONMENT }}"
+        shell: bash
+        run: |
+          set -e
+          
+          # --- Configuration & Constants ---
+          # ใช้ Full SHA สำหรับ Source Tag
+          GITHUB_SHA="${{ github.sha }}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          
+          # Defaults
+          ENV_NAME="none"
+          VAULT_ENV="none"
+          IS_BUILD="false"
+          IS_PROMOTE="false"
+          SHOULD_DEPLOY="false"
+          IS_PRODUCTION="false"
+          REQUIRE_APPROVAL="false"
+          GENERATE_EVIDENCE="false"
+          
+          # Security Defaults
+          SHOULD_RUN_SONAR="true"
+          SHOULD_RUN_SAST="true"
+          SHOULD_RUN_SCA="true"
+          SHOULD_RUN_TRIVY="true"
+          SHOULD_RUN_DAST="false"
+          
+          CHANGE_TYPE="standard"
+          RISK_LEVEL="low"
+          
+          # --- Logic Functions ---
+          
+          function get_semantic_version() {
+            local current_year
+            current_year=$(date +%y)
+          
+            local current_version
+            if ! current_version=$(git describe --tags --abbrev=0 2>/dev/null); then
+              echo "No tags found, defaulting to start of year." >&2
+              current_version="v${current_year}.0.0"
+            fi
+          
+            local clean_version="${current_version#v}"
+          
+            if command -v cz &> /dev/null; then
+               if bump_output=$(cz bump --dry-run --yes 2>&1); then
+                  local next_version
+                  next_version=$(echo "$bump_output" | grep -oP "(?<=bump: version )\S+" || echo "")
+          
+                  if [[ -n "$next_version" && "$next_version" != "$clean_version" ]]; then
+                     echo "$next_version"
+                     return
+                  fi
+               fi
+            fi
+          
+            # Fallback version
+            echo "${clean_version}-${SHORT_SHA}"
+          }
+          
+          function determine_policy() {
+            local event_name="${{ github.event_name }}"
+            local ref_name="${{ github.ref_name }}"
+            local input_env="${{ inputs.ENVIRONMENT }}"
+          
+            if [[ "$event_name" == "pull_request" ]]; then
+                ENV_NAME="pr"
+                VAULT_ENV="dev"
+                CHANGE_TYPE="standard"
+                RISK_LEVEL="low"
+                GENERATE_EVIDENCE="true"
+          
+            elif [[ "$event_name" == "workflow_dispatch" ]]; then
+                ENV_NAME="$input_env"
+                VAULT_ENV="$input_env"
+                IS_PROMOTE="true"
+                SHOULD_DEPLOY="true"
+                IS_PRODUCTION="true"
+                REQUIRE_APPROVAL="true"
+                GENERATE_EVIDENCE="true"
+                CHANGE_TYPE="production"
+                RISK_LEVEL="critical"
+          
+            else
+                case "$ref_name" in
+                  develop)
+                    ENV_NAME="dev"
+                    VAULT_ENV="dev"
+                    IS_BUILD="true"
+                    SHOULD_DEPLOY="true"
+                    CHANGE_TYPE="standard"
+                    RISK_LEVEL="medium"
+                    GENERATE_EVIDENCE="true"
+                    ;;
+                  release/*)
+                    ENV_NAME="qa"
+                    VAULT_ENV="qa"
+                    IS_PROMOTE="true"
+                    SHOULD_DEPLOY="true"
+                    CHANGE_TYPE="normal"
+                    RISK_LEVEL="medium"
+                    GENERATE_EVIDENCE="true"
+                    ;;
+                  v*)
+                    ENV_NAME="uat"
+                    VAULT_ENV="uat"
+                    IS_PROMOTE="true"
+                    SHOULD_DEPLOY="true"
+                    CHANGE_TYPE="major"
+                    RISK_LEVEL="high"
+                    GENERATE_EVIDENCE="true"
+                    ;;
+                  hotfix/*)
+                    ENV_NAME="hotfix"
+                    VAULT_ENV="dev"
+                    IS_BUILD="true"
+                    SHOULD_DEPLOY="false"
+                    CHANGE_TYPE="emergency"
+                    RISK_LEVEL="high"
+                    GENERATE_EVIDENCE="true"
+                    ;;
+                esac
+            fi
+          
+            [[ "$VAULT_ENV" == "prod" ]] && VAULT_ENV="production"
+          
+            if [[ "$RISK_LEVEL" == "high" || "$RISK_LEVEL" == "critical" ]]; then
+              SHOULD_RUN_DAST="true"
+            fi
+          }
+          
+          # --- Execution ---
+          
+          echo "::group::🔍 Determine Policy"
+          determine_policy
+          echo "Env: $ENV_NAME | Change: $CHANGE_TYPE | Risk: $RISK_LEVEL"
+          echo "::endgroup::"
+          
+          echo "::group::🏷️ Generating Tags"
+          PRIMARY_TAG=""
+          ADDITIONAL_TAGS=""
+          
+          # ✅ แก้ไขตรงนี้: ใช้ GITHUB_SHA (Full) ตามที่ระบุ
+          SOURCE_TAG="sha-${GITHUB_SHA}"
+          
+          case "${{ github.ref_name }}" in
+            develop)
+              ver=$(get_semantic_version)
+              PRIMARY_TAG="$ver"
+              ADDITIONAL_TAGS="sha-${GITHUB_SHA},dev-${GITHUB_SHA},dev-latest"
+              ;;
+            release/*)
+              ver=$(get_semantic_version)
+              PRIMARY_TAG="$ver"
+              ADDITIONAL_TAGS="qa-${GITHUB_SHA},qa-latest"
+              ;;
+            v*)
+              PRIMARY_TAG="${{ github.ref_name }}"
+              ADDITIONAL_TAGS="uat-latest"
+              ;;
+            hotfix/*)
+              ver=$(get_semantic_version)
+              PRIMARY_TAG="$ver"
+              ADDITIONAL_TAGS="hotfix-${GITHUB_SHA},hotfix-latest"
+              ;;
+            *)
+              PRIMARY_TAG="sha-${GITHUB_SHA}"
+              ;;
+          esac
+          echo "Primary: $PRIMARY_TAG"
+          echo "Source: $SOURCE_TAG"
+          echo "::endgroup::"
+          
+          # --- Set Outputs ---
+          {
+            echo "target_env=$ENV_NAME"
+            echo "vault_env=$VAULT_ENV"
+            echo "primary_tag=$PRIMARY_TAG"
+            echo "additional_tags=$ADDITIONAL_TAGS"
+            echo "source_tag=$SOURCE_TAG"
+            echo "is_build=$IS_BUILD"
+            echo "is_promote=$IS_PROMOTE"
+            echo "should_deploy=$SHOULD_DEPLOY"
+            echo "should_run_sonar=$SHOULD_RUN_SONAR"
+            echo "should_run_sast=$SHOULD_RUN_SAST"
+            echo "should_run_sca=$SHOULD_RUN_SCA"
+            echo "should_run_trivy=$SHOULD_RUN_TRIVY"
+            echo "should_run_dast=$SHOULD_RUN_DAST"
+            echo "is_production=$IS_PRODUCTION"
+            echo "require_approval=$REQUIRE_APPROVAL"
+            echo "generate_evidence=$GENERATE_EVIDENCE"
+            echo "change_type=$CHANGE_TYPE"
+            echo "risk_level=$RISK_LEVEL"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate Summary Report
-        env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
-          GITHUB_ACTOR: ${{ github.actor }}
+        if: always()
+        shell: bash
         run: |
-          .github/scripts/generate-summary.sh \
-            "${{ steps.policy.outputs.risk_level }}" \
-            "${{ steps.policy.outputs.change_type }}" \
-            "${{ steps.policy.outputs.target_env }}" \
-            "${{ steps.policy.outputs.vault_env }}" \
-            "${{ steps.policy.outputs.primary_tag }}" \
-            "${{ steps.policy.outputs.source_tag }}" \
-            "${{ steps.policy.outputs.additional_tags }}" \
-            "${{ steps.policy.outputs.is_build }}" \
-            "${{ steps.policy.outputs.is_promote }}" \
-            "${{ steps.policy.outputs.should_deploy }}" \
-            "${{ steps.policy.outputs.should_run_sonar }}" \
-            "${{ steps.policy.outputs.should_run_sast }}" \
-            "${{ steps.policy.outputs.should_run_sca }}" \
-            "${{ steps.policy.outputs.should_run_trivy }}" \
-            "${{ steps.policy.outputs.should_run_dast }}" \
-            "${{ steps.policy.outputs.is_production }}" \
-            "${{ steps.policy.outputs.require_approval }}" \
-            "${{ steps.policy.outputs.generate_evidence }}"
+          # --- Icons & Helpers ---
+          get_icon() { [[ "$1" == "true" ]] && echo "✅" || echo "⚪"; }
+          get_risk_icon() {
+            case "$1" in
+              critical) echo "🔴" ;;
+              high) echo "🟠" ;;
+              medium) echo "🟡" ;;
+              *) echo "🟢" ;;
+            esac
+          }
+          
+          # Load variables from outputs (simulated from previous step env or direct context)
+          # Note: In same job, we can use env vars if we exported them, 
+          # but cleanest is to use steps context or just re-map based on logic.
+          # Here we use the step outputs for accuracy.
+          
+          O_RISK="${{ steps.policy.outputs.risk_level }}"
+          O_CHANGE="${{ steps.policy.outputs.change_type }}"
+          RISK_ICON=$(get_risk_icon "$O_RISK")
+          
+          # Construct Markdown
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ## 🛡️ DevSecOps Policy Context
+          
+          ### ${RISK_ICON} Risk Level: \`$O_RISK\` | Type: \`$O_CHANGE\`
+          
+          | Category | Configuration | Value |
+          | :--- | :--- | :--- |
+          | **Environment** | Target Env | \`${{ steps.policy.outputs.target_env }}\` |
+          | | Vault Env | \`${{ steps.policy.outputs.vault_env }}\` |
+          | **Versioning** | Primary Tag | \`${{ steps.policy.outputs.primary_tag }}\` |
+          | | Additional | \`${{ steps.policy.outputs.additional_tags }}\` |
+          
+          #### ⚙️ Workflow Controls
+          | Action | Enabled | Security Scan | Enabled |
+          | :--- | :---: | :--- | :---: |
+          | **Build** | $(get_icon "${{ steps.policy.outputs.is_build }}") | **SonarQube** | $(get_icon "${{ steps.policy.outputs.should_run_sonar }}") |
+          | **Promote** | $(get_icon "${{ steps.policy.outputs.is_promote }}") | **SAST** | $(get_icon "${{ steps.policy.outputs.should_run_sast }}") |
+          | **Deploy** | $(get_icon "${{ steps.policy.outputs.should_deploy }}") | **SCA** | $(get_icon "${{ steps.policy.outputs.should_run_sca }}") |
+          | **Production** | $(get_icon "${{ steps.policy.outputs.is_production }}") | **Trivy** | $(get_icon "${{ steps.policy.outputs.should_run_trivy }}") |
+          | **Approval** | $(get_icon "${{ steps.policy.outputs.require_approval }}") | **DAST** | $(get_icon "${{ steps.policy.outputs.should_run_dast }}") |
+          
+          ---
+          *Generated by Policy-as-Code Engine for SHA: \`${{ github.sha }}\`*
+          EOF
