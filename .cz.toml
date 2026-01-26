@@ -35,14 +35,14 @@ version_files = []
 # ----------------------------------------------------------
 # Changelog
 # ----------------------------------------------------------
-update_changelog_on_bump = true
+update_changelog_on_bump = false
 changelog_file = "CHANGELOG.md"
 changelog_incremental = true
 
 # ----------------------------------------------------------
 # Commit Message
 # ----------------------------------------------------------
-bump_message = "chore(release): bump version {current_version} → {new_version}"
+bump_message = "chore(release): bump version $current_version → $new_version"
 
 message_length_limit = 100
 

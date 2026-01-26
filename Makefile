@@ -135,7 +135,7 @@ release-start: guard-clean guard-develop
 	@git pull origin develop
 
 	@echo "▶ Bump version ($(INCREMENT)) — commit only (no tag)"
-	@cz bump --increment $(INCREMENT) --yes
+	@cz bump --increment $(INCREMENT) --yes --changelog-to-stdout || true
 
 	@VERSION=$$(cz version); \
 	echo "▶ Create release/$$VERSION"; \
