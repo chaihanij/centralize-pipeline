@@ -135,17 +135,24 @@ release-start: guard-clean guard-develop
 	@git pull origin develop
 
 	@echo "▶ Bump version ($(INCREMENT)) — commit only (no tag)"
-	@cz bump --increment $(INCREMENT) --yes --changelog-to-stdout || true
-
-	@VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
-	if [ -z "$$VERSION" ]; then \
-		echo "❌ Failed to extract version from .cz.toml"; \
+	@OLD_VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	cz bump --increment $(INCREMENT) --yes --changelog-to-stdout || { \
+		echo "❌ Version bump failed"; \
+		exit 1; \
+	}; \
+	NEW_VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	if [ "$$OLD_VERSION" = "$$NEW_VERSION" ]; then \
+		echo "❌ Version did not change (still $$OLD_VERSION)"; \
 		exit 1; \
 	fi; \
-	echo "▶ Create release/$$VERSION"; \
-	git checkout -b release/$$VERSION; \
-	git push -u origin release/$$VERSION; \
-	echo "🎉 Release created: release/$$VERSION"
+	echo "✅ Version bumped: $$OLD_VERSION → $$NEW_VERSION"; \
+	echo "▶ Create release/$$NEW_VERSION"; \
+	git checkout -b release/$$NEW_VERSION || { \
+		echo "⚠️  Branch release/$$NEW_VERSION already exists, switching to it"; \
+		git checkout release/$$NEW_VERSION; \
+	}; \
+	git push -u origin release/$$NEW_VERSION; \
+	echo "🎉 Release created: release/$$NEW_VERSION"
 
 # ----------------------------------------------------------
 # Auto Release (detect from commit message)
@@ -166,16 +173,24 @@ release-auto: guard-clean guard-develop
 	fi; \
 	echo "✅ Detected bump: $$INCREMENT"; \
 	git pull origin develop; \
-	cz bump --increment $$INCREMENT --yes; \
-	VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
-	if [ -z "$$VERSION" ]; then \
-		echo "❌ Failed to extract version from .cz.toml"; \
+	OLD_VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	cz bump --increment $$INCREMENT --yes || { \
+		echo "❌ Version bump failed"; \
+		exit 1; \
+	}; \
+	NEW_VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	if [ "$$OLD_VERSION" = "$$NEW_VERSION" ]; then \
+		echo "❌ Version did not change (still $$OLD_VERSION)"; \
 		exit 1; \
 	fi; \
-	git checkout -b release/$$VERSION; \
-	git push -u origin release/$$VERSION; \
+	echo "✅ Version bumped: $$OLD_VERSION → $$NEW_VERSION"; \
+	git checkout -b release/$$NEW_VERSION || { \
+		echo "⚠️  Branch release/$$NEW_VERSION already exists, switching to it"; \
+		git checkout release/$$NEW_VERSION; \
+	}; \
+	git push -u origin release/$$NEW_VERSION; \
 	echo ""; \
 	echo "🎉 Release created"; \
-	echo "   branch : release/$$VERSION"; \
-	echo "   version: $$VERSION"; \
+	echo "   branch : release/$$NEW_VERSION"; \
+	echo "   version: $$NEW_VERSION"; \
 	echo "   bump   : $$INCREMENT"
