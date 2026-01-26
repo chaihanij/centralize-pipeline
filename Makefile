@@ -118,6 +118,15 @@ guard-develop:
 	fi
 
 # ----------------------------------------------------------
+# Utilities
+# ----------------------------------------------------------
+.PHONY: undo-last-commit
+undo-last-commit:
+	@echo "⚠️  Undoing last commit (keeping changes)"
+	@git reset --soft HEAD~1
+	@echo "✅ Last commit undone"
+
+# ----------------------------------------------------------
 # Manual Release Start
 # ----------------------------------------------------------
 .PHONY: release-start
@@ -125,8 +134,8 @@ release-start: guard-clean guard-develop
 	@echo "▶ Pull develop"
 	@git pull origin develop
 
-	@echo "▶ Bump version ($(INCREMENT)) — commit only"
-	@cz bump --increment $(INCREMENT)
+	@echo "▶ Bump version ($(INCREMENT)) — commit only (no tag)"
+	@cz bump --increment $(INCREMENT) --yes
 
 	@VERSION=$$(cz version); \
 	echo "▶ Create release/$$VERSION"; \
@@ -153,7 +162,7 @@ release-auto: guard-clean guard-develop
 	fi; \
 	echo "✅ Detected bump: $$INCREMENT"; \
 	git pull origin develop; \
-	cz bump --increment $$INCREMENT; \
+	cz bump --increment $$INCREMENT --yes; \
 	VERSION=$$(cz version); \
 	git checkout -b release/$$VERSION; \
 	git push -u origin release/$$VERSION; \

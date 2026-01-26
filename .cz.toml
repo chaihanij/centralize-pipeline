@@ -16,14 +16,14 @@ version_provider = "commitizen"
 # IMPORTANT:
 # - Do NOT manage version in Makefile or package.json
 # - Read via: cz version
-version = "26.1.0"
+version = "26.2.0"
 
 # ----------------------------------------------------------
-# Tagging (DISABLED)
+# Tagging
 # ----------------------------------------------------------
-# NO git tag is created during bump
-tag_format = ""
-annotated_tag = false
+# Tags are used for version tracking but creation is controlled by CI
+tag_format = "v$version"
+annotated_tag = true
 gpg_sign = false
 
 # ----------------------------------------------------------
