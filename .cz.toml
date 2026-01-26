@@ -16,7 +16,7 @@ version_provider = "commitizen"
 # IMPORTANT:
 # - Do NOT manage version in Makefile or package.json
 # - Read via: cz version
-version = "26.2.1"
+version = "26.3.0"
 
 # ----------------------------------------------------------
 # Tagging
