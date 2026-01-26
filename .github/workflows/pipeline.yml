@@ -170,7 +170,9 @@ jobs:
 
   promote:
     needs: [ set-context, build ]
-    if: always() && needs.set-context.outputs.is_promote == 'true'
+    if: |
+      always() &&
+      needs.set-context.outputs.is_promote == 'true'
     runs-on: ubuntu-latest
     name: Promote Application
     steps:
@@ -178,18 +180,26 @@ jobs:
 
   create-pull-request:
     needs: [ set-context, promote ]
-    if: github.event_name == 'push' && needs.set-context.outputs.should_create_pr == 'true'
+    if: |
+      always() &&
+      needs.promote.outputs.should_merge_to_main == 'true' &&
+      needs.promote.result == 'success'
     runs-on: ubuntu-latest
     name: Create Pull Request for Promotion
     steps:
       - run: "echo 'Create Pull Request Step Placeholder'"
 
   deploy:
-    needs: [ set-context, promote ]
-    if: needs.set-context.outputs.is_deploy == 'true'
+    needs: [ set-context, build, promote ]
+    if: |
+      always() &&
+      needs.set-context.outputs.should_deploy == 'true' &&
+      ((needs.build.result == 'success') || (needs.promote.result == 'success'))
     runs-on: ubuntu-latest
     name: Deploy Application
+
     environment:
-      ${{ needs.set-context.outputs.deployment_environment }}
+      ${{ needs.set-context.outputs.target_env }}
+
     steps:
       - run: "echo 'Deploy Application Step Placeholder'"
