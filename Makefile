@@ -137,7 +137,11 @@ release-start: guard-clean guard-develop
 	@echo "▶ Bump version ($(INCREMENT)) — commit only (no tag)"
 	@cz bump --increment $(INCREMENT) --yes --changelog-to-stdout || true
 
-	@VERSION=$$(cz version); \
+	@VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	if [ -z "$$VERSION" ]; then \
+		echo "❌ Failed to extract version from .cz.toml"; \
+		exit 1; \
+	fi; \
 	echo "▶ Create release/$$VERSION"; \
 	git checkout -b release/$$VERSION; \
 	git push -u origin release/$$VERSION; \
@@ -163,7 +167,11 @@ release-auto: guard-clean guard-develop
 	echo "✅ Detected bump: $$INCREMENT"; \
 	git pull origin develop; \
 	cz bump --increment $$INCREMENT --yes; \
-	VERSION=$$(cz version); \
+	VERSION=$$(grep -E '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/'); \
+	if [ -z "$$VERSION" ]; then \
+		echo "❌ Failed to extract version from .cz.toml"; \
+		exit 1; \
+	fi; \
 	git checkout -b release/$$VERSION; \
 	git push -u origin release/$$VERSION; \
 	echo ""; \
