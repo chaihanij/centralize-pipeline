@@ -137,9 +137,59 @@ on:
 
 
 jobs:
-  context:
+  set-context:
     name: Context
     uses: ./.github/workflows/context.yml
     with:
       RUNS_ON: ${{ inputs.RUNS_ON }}
       ENVIRONMENT: ${{ inputs.ENVIRONMENT }}
+
+  unit-test:
+    needs: [ set-context ]
+    if: needs.set-context.outputs.is_build == 'true' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    name: Unit Test & Coverage
+    steps:
+      - run: "echo 'Unit Test & Coverage Step Placeholder'"
+
+  sonarqube:
+    needs: [ set-context, unit-test ]
+    if: needs.set-context.outputs.should_run_sonar == 'true'
+    runs-on: ubuntu-latest
+    name: SonarQube Scan
+    steps:
+      - run: "echo 'SonarQube Scan Step Placeholder'"
+
+  build:
+    needs: [ set-context, unit-test ]
+    if: needs.set-context.outputs.is_build == 'true'
+    runs-on: ubuntu-latest
+    name: Build Application
+    steps:
+      - run: "echo 'Build Application Step Placeholder'"
+
+  promote:
+    needs: [ set-context, build ]
+    if: always() && needs.set-context.outputs.is_promote == 'true'
+    runs-on: ubuntu-latest
+    name: Promote Application
+    steps:
+      - run: "echo 'Promote Application Step Placeholder'"
+
+  create-pull-request:
+    needs: [ set-context, promote ]
+    if: github.event_name == 'push' && needs.set-context.outputs.should_create_pr == 'true'
+    runs-on: ubuntu-latest
+    name: Create Pull Request for Promotion
+    steps:
+      - run: "echo 'Create Pull Request Step Placeholder'"
+
+  deploy:
+    needs: [ set-context, promote ]
+    if: needs.set-context.outputs.is_deploy == 'true'
+    runs-on: ubuntu-latest
+    name: Deploy Application
+    environment:
+      ${{ needs.set-context.outputs.deployment_environment }}
+    steps:
+      - run: "echo 'Deploy Application Step Placeholder'"
